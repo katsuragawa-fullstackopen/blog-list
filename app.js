@@ -2,6 +2,7 @@
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
+require("express-async-errors");
 
 // import modules
 const { MONGODB_URI } = require("./utils/config");
@@ -18,7 +19,7 @@ mongoose.connect(MONGODB_URI, {
   useCreateIndex: true,
 });
 
-// setup for middlewares
+// setup for middleware
 app.use(cors());
 app.use(express.json());
 
