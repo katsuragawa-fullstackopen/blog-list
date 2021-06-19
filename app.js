@@ -7,6 +7,7 @@ require("express-async-errors");
 // import modules
 const { MONGODB_URI } = require("./utils/config");
 const blogsRoute = require("./controllers/blog");
+const { unknownEndpoint, errorHandler } = require("./utils/middleware");
 
 // init express app
 const app = express();
@@ -25,5 +26,11 @@ app.use(express.json());
 
 // API routes
 app.use("/api/blogs", blogsRoute);
+
+// unknown endpoint
+app.use(unknownEndpoint);
+
+// error handlers
+app.use(errorHandler);
 
 module.exports = app;
