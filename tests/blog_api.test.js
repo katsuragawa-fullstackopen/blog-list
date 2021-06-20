@@ -2,116 +2,148 @@ const app = require("../app");
 const supertest = require("supertest");
 const mongoose = require("mongoose");
 const Blog = require("../models/blog");
+const helper = require("./test_helper");
 
 const api = supertest(app);
-
-const initialBlogs = [
-  {
-    title: "The Story Of React Has Just Gone Viral!",
-    author: "Brett C. Richardson",
-    url: "http://account.example.com/",
-    likes: 21,
-  },
-  {
-    title: "The Ten Common Stereotypes When It Comes To Node.",
-    author: "Wyatt L. Goers",
-    url: "http://www.example.com/bridge.aspx",
-    likes: 83,
-  },
-];
 
 beforeEach(async () => {
   await Blog.deleteMany({});
 
-  for (let blog of initialBlogs) {
+  for (let blog of helper.initialBlogs) {
     const blogObject = new Blog(blog);
     await blogObject.save();
   }
 });
 
-test("API return GET request as JSON", async () => {
-  await api
-    .get("/api/blogs")
-    .expect(200)
-    .expect("Content-Type", /application\/json/);
+describe("When there's blogs saved", () => {
+  test("return GET request as JSON", async () => {
+    await api
+      .get("/api/blogs")
+      .expect(200)
+      .expect("Content-Type", /application\/json/);
+  });
+
+  test("return correct amount of blogs", async () => {
+    const blogs = await api.get("/api/blogs");
+    expect(blogs.body).toHaveLength(2);
+  });
+
+  test("return id property instead of _id", async () => {
+    const blogs = await api
+      .get("/api/blogs")
+      .expect(200)
+      .expect("Content-Type", /application\/json/);
+
+    for (blog of blogs.body) {
+      expect(blog.id).toBeDefined();
+    }
+  });
 });
 
-test("API return correct amount of blogs", async () => {
-  const blogs = await api.get("/api/blogs");
-  expect(blogs.body).toHaveLength(2);
+describe("Adding a blog to database", () => {
+  test("succeeds to add a valid blog", async () => {
+    const blogToAdd = {
+      title: "Test blog to be added",
+      author: "Tester V1",
+      url: "tester.com",
+      likes: 1,
+    };
+
+    await api
+      .post("/api/blogs")
+      .send(blogToAdd)
+      .expect(201)
+      .expect("Content-Type", /application\/json/);
+
+    const blogs = await helper.blogsInDb();
+    expect(blogs).toHaveLength(helper.initialBlogs.length + 1);
+
+    const titles = blogs.map((b) => b.title);
+    expect(titles).toContain("Test blog to be added");
+
+    const authors = blogs.map((b) => b.author);
+    expect(authors).toContain("Tester V1");
+  });
+
+  test("without 'likes' property will default to 0", async () => {
+    const blogToAdd = {
+      title: "Test blog to be added",
+      author: "Tester V1",
+      url: "tester.com",
+    };
+
+    await api
+      .post("/api/blogs")
+      .send(blogToAdd)
+      .expect(201)
+      .expect("Content-Type", /application\/json/);
+
+    const blogs = await helper.blogsInDb();
+    expect(blogs).toHaveLength(3);
+
+    const likes = blogs.map((b) => b.likes);
+    expect(likes).toContain(0);
+  });
+
+  test("without 'title' or 'url' returns 400", async () => {
+    const blogToAdd_withoutTitle = {
+      author: "Tester V1",
+      url: "tester.com",
+      likes: 22,
+    };
+    await api.post("/api/blogs").send(blogToAdd_withoutTitle).expect(400);
+
+    const blogToAdd_withoutUrl = {
+      title: "Test blog to be added",
+      author: "Tester V1",
+      likes: 1,
+    };
+    await api.post("/api/blogs").send(blogToAdd_withoutUrl).expect(400);
+  });
 });
 
-test("API add a valid blog to database", async () => {
-  const blogToAdd = {
-    title: "Test blog to be added",
-    author: "Tester V1",
-    url: "testurl.com",
-    likes: 1,
-  };
+describe("Deleting a blog", () => {
+  test("succeeds with status 204 if ID is valid", async () => {
+    const blogs = await helper.blogsInDb();
+    const blogToDelete = blogs[0];
 
-  await api
-    .post("/api/blogs")
-    .send(blogToAdd)
-    .expect(201)
-    .expect("Content-Type", /application\/json/);
+    await api.delete(`/api/blogs/${blogToDelete.id}`).expect(204);
 
-  const blogsInDB = await Blog.find({});
-  const blogsInDB_JSON = blogsInDB.map((blog) => blog.toJSON());
-  expect(blogsInDB_JSON).toHaveLength(initialBlogs.length + 1);
+    const blogsAfter = await helper.blogsInDb();
+    expect(blogsAfter).toHaveLength(helper.initialBlogs.length - 1);
 
-  const titles = blogsInDB_JSON.map((b) => b.title);
-  expect(titles).toContain("Test blog to be added");
-
-  const authors = blogsInDB_JSON.map((b) => b.author);
-  expect(authors).toContain("Tester V1");
+    const titles = blogsAfter.map((b) => b.title);
+    expect(titles).not.toContain(blogToDelete.title);
+  });
 });
 
-test("API return id property", async () => {
-  const blogs = await api
-    .get("/api/blogs")
-    .expect(200)
-    .expect("Content-Type", /application\/json/);
+describe("Updating a blog", () => {
+  test("succeeds with valid ID and request body", async () => {
+    const blogs = await helper.blogsInDb();
+    const blogToUpdate = blogs[0];
 
-  for (blog of blogs.body) {
-    expect(blog.id).toBeDefined();
-  }
-});
+    blogToUpdate.likes = 10;
 
-test("POST request without 'likes' property will default to 0", async () => {
-  const blogToAdd = {
-    title: "Test blog to be added",
-    author: "Tester V1",
-    url: "testurl.com",
-  };
+    const updatedBlog = await api
+      .put(`/api/blogs/${blogToUpdate.id}`)
+      .send(blogToUpdate)
+      .expect(200)
+      .expect("Content-Type", /application\/json/);
 
-  await api
-    .post("/api/blogs")
-    .send(blogToAdd)
-    .expect(201)
-    .expect("Content-Type", /application\/json/);
+    expect(updatedBlog.body.likes).toEqual(10);
+  });
 
-  const blogsInDB = await Blog.find({});
-  const blogsInDB_JSON = blogsInDB.map((b) => b.toJSON());
-  expect(blogsInDB_JSON).toHaveLength(3);
+  test("fails with status 400 if ID is invalid", async () => {
+    const blogs = await helper.blogsInDb();
+    const blogToUpdate = blogs[0];
 
-  const likes = blogsInDB_JSON.map((b) => b.likes);
-  expect(likes).toContain(0);
-});
+    blogToUpdate.likes = 10;
 
-test.only("POST request without 'title' or 'url' returns 400", async () => {
-  const blogToAdd_withoutTitle = {
-    author: "Tester V1",
-    url: "testurl.com",
-    likes: 22,
-  };
-  await api.post("/api/blogs").send(blogToAdd_withoutTitle).expect(400);
-
-  const blogToAdd_withoutUrl = {
-    title: "Test blog to be added",
-    author: "Tester V1",
-    likes: 1,
-  };
-  await api.post("/api/blogs").send(blogToAdd_withoutUrl).expect(400);
+    const updatedBlog = await api
+      .put(`/api/blogs/${blogToUpdate.id}invalid`)
+      .send(blogToUpdate)
+      .expect(400)
+  })
 });
 
 afterAll(() => {
